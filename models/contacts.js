@@ -1,19 +1,17 @@
 const { Schema, model } = require("mongoose");
 
 const contactSchema = new Schema({
-  name: {
-    type: String,
-    required: [true, "Set name for contact"],
-  },
+  name: { type: String, required: [true, "Set name for contact"] },
   email: String,
   phone: String,
-  favorite: {
-    type: Boolean,
-    default: false,
+  favorite: { type: Boolean, default: false },
+  owner: {
+    type: Schema.Types.ObjectId,
+    ref: "user",
+    required: true,
   },
 });
 
-// const Contact = model("contact", contactSchema);
 const Contact = model("Contact", contactSchema, "contacts");
 
 // Mongodb functions
@@ -32,6 +30,7 @@ const updateStatusContact = (id, data) =>
   Contact.findByIdAndUpdate(id, data, { new: true });
 
 module.exports = {
+  Contact,
   listContacts,
   getContactById,
   addContact,
