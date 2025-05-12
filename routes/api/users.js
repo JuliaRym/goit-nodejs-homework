@@ -7,10 +7,12 @@ const fs = require("fs/promises");
 const gravatar = require("gravatar");
 const Jimp = require("jimp");
 // const { Jimp } = require("jimp");
+const { v4: uuidv4 } = require("uuid");
 
 const User = require("../../models/user");
 const auth = require("../../middleware/auth");
 const upload = require("../../middleware/upload");
+const sendEmail = require("../../helpers/sendEmail.js");
 
 const router = express.Router();
 
@@ -24,6 +26,10 @@ const signupSchema = Joi.object({
 const loginSchema = Joi.object({
   email: Joi.string().email().required(),
   password: Joi.string().required(),
+});
+
+const resendSchema = Joi.object({
+  email: Joi.string().email().required(),
 });
 
 // POST /users/register
@@ -47,11 +53,21 @@ router.post("/register", async (req, res, next) => {
     // });
 
     const avatarURL = gravatar.url(email, { s: "250" }, true);
+    const verificationToken = uuidv4();
 
     const newUser = await User.create({
       email,
       password: hashedPassword,
       avatarURL,
+      verificationToken,
+    });
+
+    const verifyLink = `http://localhost:3000/api/users/verify/${verificationToken}`;
+
+    await sendEmail({
+      to: email,
+      subject: "Verify your email",
+      html: `<a href="${verifyLink}">Click to verify your email</a>`,
     });
 
     res.status(201).json({
@@ -171,5 +187,59 @@ router.patch(
     }
   }
 );
+
+router.get("/verify/:verificationToken", async (req, res, next) => {
+  try {
+    const { verificationToken } = req.params;
+    const user = await User.findOne({ verificationToken });
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    user.verify = true;
+    user.verificationToken = null;
+    await user.save();
+
+    res.status(200).json({ message: "Verification successful" });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/verify", async (req, res, next) => {
+  try {
+    const { error } = resendSchema.validate(req.body);
+    if (error)
+      return res.status(400).json({ message: "Missing required field email" });
+
+    const { email } = req.body;
+    const user = await User.findOne({ email });
+
+    if (!user) return res.status(404).json({ message: "User not found" });
+    if (user.verify)
+      return res
+        .status(400)
+        .json({ message: "Verification has already been passed" });
+
+    // Sprawdzenie i wygenerowanie nowego tokenu
+    if (!user.verificationToken) {
+      user.verificationToken = uuidv4();
+      await user.save();
+    }
+
+    const verifyLink = `http://localhost:3000/api/users/verify/${user.verificationToken}`;
+
+    await sendEmail({
+      to: email,
+      subject: "Verify your email",
+      html: `<a href="${verifyLink}">Click to verify your email</a>`,
+    });
+
+    res.status(200).json({ message: "Verification email sent" });
+  } catch (err) {
+    next(err);
+  }
+});
 
 module.exports = router;
